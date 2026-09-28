@@ -1,4 +1,4 @@
-"""Holt Käufe von GeckoTerminal und postet sie in die Chats."""
+"""Fetches buys from GeckoTerminal and posts them to the chats."""
 import asyncio
 import html
 import logging
@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 http = httpx.AsyncClient(base_url="https://api.geckoterminal.com/api/v2", timeout=20,
                          headers={"Accept": "application/json;version=20230302"})
 
-# GeckoTerminal-ID: (Name, TX-Link, Wallet-Link, DexScreener-ID, Kauf-Link)
+# GeckoTerminal ID: (name, TX link, wallet link, DexScreener ID, buy link)
 NETS = {
     "solana": ("Solana", "https://solscan.io/tx/{}", "https://solscan.io/account/{}", "solana",
                "https://jup.ag/swap/SOL-{}"),
@@ -25,7 +25,7 @@ NETS = {
             "https://pancakeswap.finance/swap?outputCurrency={}"),
 }
 ALIASES = {"sol": "solana", "ethereum": "eth", "bnb": "bsc"}
-LINKS = {"tg": "💬 Telegram", "x": "𝕏 Twitter", "web": "🌐 Website", "buy": "🛒 Kaufen"}
+LINKS = {"tg": "💬 Telegram", "x": "𝕏 Twitter", "web": "🌐 Website", "buy": "🛒 Buy"}
 
 
 async def get(path: str, **params) -> dict:
@@ -33,7 +33,7 @@ async def get(path: str, **params) -> dict:
 
 
 async def find_token(ca: str, net: str | None = None) -> dict | None:
-    """Sucht den Pool mit der meisten Liquidität für die CA."""
+    """Finds the pool with the most liquidity for the CA."""
     params = {"query": ca, "include": "base_token,quote_token"} | ({"network": net} if net else {})
     r = await get("/search/pools", **params)
     tokens = {t["id"]: t["attributes"] for t in r.get("included", [])}
@@ -48,7 +48,7 @@ async def find_token(ca: str, net: str | None = None) -> dict | None:
             liq_max = liq
             best = {"ca": mine["address"], "net": n, "pool": attrs["address"], "name": mine["name"],
                     "symbol": mine["symbol"], "quote": other.get("symbol", "")}
-    if best:  # Supply einmalig merken -> Market Cap = Supply * Preis
+    if best:  # remember supply once -> market cap = supply * price
         try:
             t = (await get(f"/networks/{best['net']}/tokens/{best['ca']}"))["data"]["attributes"]
             best["supply"] = float(t["fdv_usd"]) / float(t["price_usd"])
@@ -58,7 +58,7 @@ async def find_token(ca: str, net: str | None = None) -> dict | None:
 
 
 async def trades(net: str, pool: str) -> list[dict]:
-    """Letzte Trades des Pools, neueste zuerst."""
+    """Latest trades of the pool, newest first."""
     return (await get(f"/networks/{net}/pools/{pool}/trades"))["data"]
 
 
@@ -85,7 +85,7 @@ def render(cfg: dict, t: dict) -> str:
         "",
         f"💵 <b>{fmt(usd, True)}</b> ({fmt(t['from_token_amount'])} {e(cfg['quote'])})",
         f"🪙 {fmt(t['to_token_amount'])} {e(cfg['symbol'])}",
-        f"👤 <a href=\"{wallet_url.format(t['tx_from_address'])}\">Käufer</a>"
+        f"👤 <a href=\"{wallet_url.format(t['tx_from_address'])}\">Buyer</a>"
         f" | <a href=\"{tx_url.format(t['tx_hash'])}\">TX</a>",
     ]
     if cfg.get("supply") and price:
@@ -114,14 +114,14 @@ async def send(bot: Bot, key: tuple[int, int], cfg: dict, text: str):
     except RetryAfter as err:
         await asyncio.sleep(err.retry_after)
         await send(bot, key, cfg, text)
-    except ChatMigrated as err:  # Gruppe wurde zur Supergruppe
+    except ChatMigrated as err:  # group was upgraded to a supergroup
         db.delete(key)
         db.save((key[0], err.new_chat_id), cfg)
         await send(bot, (key[0], err.new_chat_id), cfg, text)
-    except Forbidden:  # Bot wurde entfernt
+    except Forbidden:  # bot was removed
         db.delete(key)
     except TelegramError as err:
-        log.warning("Senden an %s fehlgeschlagen: %s", key[1], err)
+        log.warning("Sending to %s failed: %s", key[1], err)
 
 
 async def run(bots: dict[int, Bot], interval: float):
@@ -131,7 +131,7 @@ async def run(bots: dict[int, Bot], interval: float):
         for key, cfg in db.chats.items():
             if key[0] in bots and cfg.get("pool") and not cfg["paused"]:
                 pools.setdefault((cfg["net"], cfg["pool"]), []).append(key)
-        for p in seen.keys() - pools.keys():  # pausierte Pools vergessen -> kein Nachposten
+        for p in seen.keys() - pools.keys():  # forget paused pools -> no backfill on resume
             del seen[p]
         for p, keys in pools.items():
             try:
@@ -146,5 +146,5 @@ async def run(bots: dict[int, Bot], interval: float):
                     cfg = db.chats.get(key)
                     if cfg and is_buy(cfg, t) and float(t["volume_in_usd"]) >= cfg["min_buy"]:
                         await send(bots[key[0]], key, cfg, render(cfg, t))
-            await asyncio.sleep(2.1)  # GeckoTerminal erlaubt ~30 Anfragen/Minute
+            await asyncio.sleep(2.1)  # GeckoTerminal allows ~30 requests/minute
         await asyncio.sleep(interval)

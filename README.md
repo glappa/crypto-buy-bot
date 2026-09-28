@@ -1,174 +1,174 @@
-# 🤖 Telegram Buy Bot
+# 🤖 Crypto Buy Bot for Telegram
 
-Postet jeden Kauf eines Coins live in deine Telegram-Gruppe – einfach die **Contract Address (CA)** eingeben.
+Posts every buy of a coin live to your Telegram group – just enter the **contract address (CA)**.
 
-**Chains:** Solana · **Base** · Ethereum · BSC (wird automatisch erkannt)
+**Chains:** Solana · **Base** · Ethereum · BSC (auto-detected)
 
 **Features**
-- 💵 Kaufwert in $ und in SOL/ETH, erhaltene Tokens, Market Cap, Links zu Käufer + TX
-- 🎚️ **Mindestkauf** – z. B. erst ab $50 posten (`/minbuy 50`)
-- 🚀 Eigenes Emoji + „$ pro Emoji“ (größere Käufe = längere Emoji-Reihe)
-- 🐳 Whale-Hinweis ab einem frei wählbaren Betrag
-- 🏷️ **Pro Gruppe eigener Projektname und eigenes Banner** (Bild, GIF oder Video)
-- 🔗 Buttons: Chart (DexScreener), Kaufen, Telegram, X, Website
-- ⏸ Pausieren/Fortsetzen, Test-Post, Einstellungen per `/settings`
-- 👥 **Mehrere Bots gleichzeitig** – jedes Projekt kann einen Bot mit eigenem Namen und Profilbild haben
-- 🔒 Nur Gruppen-Admins können Einstellungen ändern
-- Keine API-Keys nötig (Daten von [GeckoTerminal](https://www.geckoterminal.com))
+- 💵 Buy value in $ and in SOL/ETH, tokens received, market cap, links to buyer + TX
+- 🎚️ **Minimum buy** – e.g. only post buys from $50 (`/minbuy 50`)
+- 🚀 Custom emoji + "$ per emoji" (bigger buys = longer emoji row)
+- 🐳 Whale alert from an amount you choose
+- 🏷️ **Custom project name and banner per group** (image, GIF or video)
+- 🔗 Buttons: Chart (DexScreener), Buy, Telegram, X, Website
+- ⏸ Pause/resume, preview post, settings overview via `/settings`
+- 👥 **Several bots at once** – every project can have a bot with its own name and profile picture
+- 🔒 Only group admins can change settings
+- No API keys needed (data from [GeckoTerminal](https://www.geckoterminal.com))
 
-So sieht ein Post aus:
+This is what a post looks like:
 
 ```
-Mein Projekt Buy!
+My Project Buy!
 🐳 WHALE BUY! 🐳
 🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀
 
 💵 $2.50K (0.71 ETH)
 🪙 31.25M TST
-👤 Käufer | TX
+👤 Buyer | TX
 📊 MC $80.00K
-[📈 Chart] [🛒 Kaufen]
+[📈 Chart] [🛒 Buy]
 [💬 Telegram] [𝕏 Twitter]
 ```
 
 ---
 
-## 📖 Schritt-für-Schritt-Anleitung
+## 📖 Step-by-step guide
 
-### Schritt 1 – Bot bei Telegram erstellen (2 Minuten)
+### Step 1 – Create the bot on Telegram (2 minutes)
 
-1. Öffne in Telegram den Chat mit **[@BotFather](https://t.me/BotFather)**.
-2. Schreibe `/newbot`.
-3. Gib einen **Namen** ein (z. B. `Pepe Buy Bot`) – den sehen alle.
-4. Gib einen **Username** ein, der auf `bot` endet (z. B. `PepeBuyBot`).
-5. BotFather schickt dir einen **Token** wie `7123456789:AAH...`. **Geheim halten!**
-6. Optional, aber empfohlen – im BotFather:
-   - `/setuserpic` → Bot wählen → Profilbild (z. B. Projekt-Logo) schicken
-   - `/setdescription` → Text, den man sieht, bevor man den Bot startet
+1. In Telegram, open the chat with **[@BotFather](https://t.me/BotFather)**.
+2. Send `/newbot`.
+3. Enter a **name** (e.g. `Pepe Buy Bot`) – everyone will see it.
+4. Enter a **username** ending in `bot` (e.g. `PepeBuyBot`).
+5. BotFather sends you a **token** like `7123456789:AAH...`. **Keep it secret!**
+6. Optional but recommended – in BotFather:
+   - `/setuserpic` → choose your bot → send a profile picture (e.g. the project logo)
+   - `/setdescription` → text people see before they start the bot
 
-### Schritt 2 – Bot starten
+### Step 2 – Run the bot
 
-Der Bot muss auf einem Rechner laufen, sonst postet er nichts. Wähle **eine** Variante:
+The bot has to run on a computer, otherwise it won't post anything. Pick **one** option:
 
-#### Variante A – Auf deinem PC (zum Testen)
+#### Option A – On your PC (for testing)
 
-1. [Python 3.10+](https://www.python.org/downloads/) installieren (Windows: Haken bei **„Add Python to PATH“** setzen).
-2. Diesen Code herunterladen: auf GitHub oben **„Code“ → „Download ZIP“** und entpacken
-   (oder `git clone https://github.com/glappa/crypto-buy-bot`).
-3. Im Ordner die Datei `.env.example` kopieren und die Kopie **`.env`** nennen.
-   Öffnen und deinen Token eintragen:
+1. Install [Python 3.10+](https://www.python.org/downloads/) (Windows: tick **"Add Python to PATH"**).
+2. Download this code: on GitHub click **"Code" → "Download ZIP"** and unzip it
+   (or `git clone https://github.com/glappa/crypto-buy-bot`).
+3. In the folder, copy `.env.example` and name the copy **`.env`**.
+   Open it and paste your token:
    ```
    BOT_TOKENS=7123456789:AAH...
    ```
-4. Terminal/Eingabeaufforderung im Ordner öffnen und ausführen:
+4. Open a terminal / command prompt in the folder and run:
    ```bash
    pip install -r requirements.txt
    python bot.py
    ```
-5. Erscheint `@DeinBot läuft`, ist alles gut. Fenster offen lassen – schließt du es, stoppt der Bot.
+5. If you see `@YourBot is running`, everything works. Keep the window open – closing it stops the bot.
 
-#### Variante B – 24/7 auf einem Server (empfohlen)
+#### Option B – 24/7 on a server (recommended)
 
-**Railway (ohne eigenen Server):**
-1. Dieses Repo forken (oder direkt nutzen).
-2. Auf [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo** → Repo wählen.
-3. **Variables** → `BOT_TOKENS` = dein Token.
-4. **Volume** hinzufügen, Mount-Pfad `/data` (damit Einstellungen nach Neustarts erhalten bleiben).
-5. Railway baut das `Dockerfile` automatisch und startet den Bot.
+**Railway (no own server needed):**
+1. Fork this repo (or use it directly).
+2. On [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo** → pick the repo.
+3. **Variables** → `BOT_TOKENS` = your token.
+4. Add a **volume** with mount path `/data` (so settings survive restarts).
+5. Railway builds the `Dockerfile` automatically and starts the bot.
 
-**Eigener Linux-Server (VPS, z. B. Hetzner ~4 €/Monat) mit Docker:**
+**Your own Linux server (VPS, e.g. Hetzner ~€4/month) with Docker:**
 ```bash
 git clone https://github.com/glappa/crypto-buy-bot && cd crypto-buy-bot
-cp .env.example .env && nano .env           # Token eintragen
+cp .env.example .env && nano .env           # paste your token
 docker build -t buybot .
 docker run -d --name buybot --restart unless-stopped --env-file .env -v buybot-data:/data buybot
-docker logs -f buybot                       # Logs ansehen
+docker logs -f buybot                       # view logs
 ```
 
-### Schritt 3 – Bot in die Gruppe einladen
+### Step 3 – Add the bot to your group
 
-1. Öffne den Chat mit deinem Bot und drücke **Start** → Button **„➕ Zu Gruppe hinzufügen“** → Gruppe wählen.
-   *(Alternativ: Gruppe → Info → Mitglieder hinzufügen → `@DeinBot` suchen.)*
-2. **Bot zum Admin machen** (Gruppe → Info → Administratoren → Admin hinzufügen → Bot).
-   Er braucht **keine** besonderen Rechte – Admin sorgt nur dafür, dass er alle Befehle und Bilder zuverlässig sieht.
-3. Der Bot begrüßt die Gruppe mit einer kurzen Nachricht.
+1. Open the chat with your bot and press **Start** → button **"➕ Add to group"** → choose the group.
+   *(Alternatively: group → Info → Add members → search `@YourBot`.)*
+2. **Make the bot an admin** (group → Info → Administrators → Add admin → your bot).
+   It needs **no** special permissions – admin status just makes sure it reliably sees all commands and images.
+3. The bot greets the group with a short message.
 
-### Schritt 4 – Coin einrichten (in der Gruppe, als Admin)
+### Step 4 – Set up your coin (in the group, as admin)
 
 ```
 /setup <CA>
 ```
-Beispiele:
+Examples:
 ```
-/setup 0x532f27101965dd16442E59d40670FaF5eBB142E4          ← Base (wird erkannt)
-/setup 0x6982508145454Ce325dDbE47a25d4ec3d2311933 eth      ← Chain erzwingen
+/setup 0x532f27101965dd16442E59d40670FaF5eBB142E4          ← Base (auto-detected)
+/setup 0x6982508145454Ce325dDbE47a25d4ec3d2311933 eth      ← force a chain
 /setup EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm        ← Solana
 ```
-Der Bot sucht automatisch den Pool mit der meisten Liquidität. Danach mit `/test` prüfen, wie ein Post aussieht.
+The bot automatically picks the pool with the most liquidity. Then use `/test` to see what a post looks like.
 
-### Schritt 5 – Anpassen
+### Step 5 – Customize
 
-| Befehl | Beispiel | Wirkung |
+| Command | Example | Effect |
 |---|---|---|
-| `/minbuy <usd>` | `/minbuy 50` | Nur Käufe ab $50 posten |
-| `/emoji <emoji> [usd]` | `/emoji 🚀 20` | 1 🚀 pro $20 (max. 50) |
-| `/name <text>` | `/name Pepe Army` | Projektname im Post (`/name` leer = zurücksetzen) |
-| `/media` | *Antwort auf Bild/GIF/Video* | Banner, das bei jedem Kauf mitkommt (`/media off` = entfernen) |
-| `/link <tg\|x\|web\|buy> <url>` | `/link x https://x.com/pepe` | Button unter den Posts (`off` statt URL = entfernen) |
-| `/whale <usd>` | `/whale 1000` | 🐳-Hinweis ab $1000 (`0` = aus) |
-| `/pause` · `/resume` | | Posts anhalten / weiter |
-| `/settings` | | Alle Einstellungen anzeigen |
-| `/test` | | Letzten echten Kauf als Beispiel posten |
-| `/stop` | | Tracking beenden und Einstellungen löschen |
-| `/help` | | Befehlsübersicht |
+| `/minbuy <usd>` | `/minbuy 50` | Only post buys from $50 |
+| `/emoji <emoji> [usd]` | `/emoji 🚀 20` | 1 🚀 per $20 (max. 50) |
+| `/name <text>` | `/name Pepe Army` | Project name in posts (empty `/name` = reset) |
+| `/media` | *reply to an image/GIF/video* | Banner attached to every buy (`/media off` = remove) |
+| `/link <tg\|x\|web\|buy> <url>` | `/link x https://x.com/pepe` | Button below posts (`off` instead of URL = remove) |
+| `/whale <usd>` | `/whale 1000` | 🐳 alert from $1000 (`0` = off) |
+| `/pause` · `/resume` | | Pause / resume posts |
+| `/settings` | | Show all settings |
+| `/test` | | Post the latest real buy as a preview |
+| `/stop` | | Stop tracking and delete settings |
+| `/help` | | Command overview |
 
-**Banner setzen:** Bild/GIF/Video in die Gruppe schicken → darauf **antworten** mit `/media`.
-Oder direkt beim Senden `/media` als Bildunterschrift schreiben.
+**Setting a banner:** send an image/GIF/video to the group → **reply** to it with `/media`.
+Or type `/media` as the caption when sending it.
 
 ---
 
-## 🎨 Eigener Name & eigenes Bild pro Projekt
+## 🎨 Custom name & picture per project
 
-Wichtig zu wissen: Bei Telegram hat ein Bot **überall denselben** Namen und dasselbe Profilbild –
-das lässt sich technisch nicht pro Gruppe ändern. Dieser Bot löst das auf zwei Ebenen:
+Good to know: on Telegram a bot has **the same** name and profile picture everywhere –
+it's technically impossible to change them per group. This bot solves it on two levels:
 
-**1. Pro Gruppe (automatisch, ein Bot für alle):**
-Jede Gruppe hat ihre **eigenen** Einstellungen: Projektname (`/name`), Banner (`/media`), Emoji, Links, Mindestkauf usw.
-Die Posts sehen damit in jeder Gruppe komplett nach dem jeweiligen Projekt aus.
+**1. Per group (automatic, one bot for everyone):**
+Every group has its **own** settings: project name (`/name`), banner (`/media`), emoji, links, minimum buy, etc.
+So in every group the posts look fully branded for that project.
 
-**2. Eigener Bot pro Projekt (eigener Name + Profilbild):**
-Soll auch der **Bot selbst** z. B. „Pepe Buy Bot“ mit Pepe-Logo heißen:
-1. Für das Projekt bei @BotFather einen neuen Bot erstellen (Schritt 1) und dort Name/Bild setzen.
-2. Den neuen Token mit Komma in die `.env` eintragen:
+**2. A separate bot per project (own name + profile picture):**
+If the **bot itself** should be called e.g. "Pepe Buy Bot" with the Pepe logo:
+1. Create a new bot for the project with @BotFather (step 1) and set its name/picture there.
+2. Add the new token to `.env`, separated by a comma:
    ```
    BOT_TOKENS=111111:AAA...,222222:BBB...,333333:CCC...
    ```
-3. Bot neu starten. **Ein** Server betreibt jetzt alle Bots gleichzeitig – jeder mit eigenem Namen, Bild und eigenen Gruppen.
+3. Restart. **One** server now runs all bots at once – each with its own name, picture and groups.
 
-Name oder Bild später ändern: im BotFather `/setname` bzw. `/setuserpic`.
+To change the name or picture later: `/setname` or `/setuserpic` in BotFather.
 
 ---
 
-## ❓ Probleme?
+## ❓ Troubleshooting
 
-| Problem | Lösung |
+| Problem | Solution |
 |---|---|
-| Bot reagiert nicht auf Befehle | Läuft `python bot.py` noch? Bot zum Admin machen. Befehl evtl. als `/setup@DeinBot …` senden. |
-| „Kein Pool gefunden“ | CA prüfen. Chain angeben: `/setup <CA> base`. Ganz neue Coins brauchen evtl. ein paar Minuten, bis GeckoTerminal sie kennt. |
-| „Nur Admins …“ | Nur Gruppen-Admins dürfen den Bot einstellen. |
-| Käufe kommen mit Verzögerung | Normal: Der Bot fragt alle ~15 s ab. `POLL_SECONDS` in der `.env` anpassen (nicht unter 10). |
-| Market Cap fehlt | GeckoTerminal kennt die Supply des Tokens noch nicht – `/setup` später erneut ausführen. |
+| Bot doesn't react to commands | Is `python bot.py` still running? Make the bot an admin. Try sending the command as `/setup@YourBot …`. |
+| "No pool found" | Check the CA. Specify the chain: `/setup <CA> base`. Brand-new coins may take a few minutes to show up on GeckoTerminal. |
+| "Only admins …" | Only group admins can configure the bot. |
+| Buys arrive with a delay | Normal: the bot checks every ~15 s. Adjust `POLL_SECONDS` in `.env` (not below 10). |
+| Market cap missing | GeckoTerminal doesn't know the token's supply yet – run `/setup` again later. |
 
-**Hinweise**
-- Getrackt wird der Pool mit der meisten Liquidität. Käufe über andere Pools desselben Coins erscheinen nicht.
-- Die kostenlose GeckoTerminal-API erlaubt ~30 Anfragen/Minute. Pro Coin wird eine Anfrage pro Durchlauf gestellt – bei vielen Coins werden die Abstände automatisch größer.
+**Notes**
+- Only the pool with the most liquidity is tracked. Buys through other pools of the same coin won't show up.
+- The free GeckoTerminal API allows ~30 requests/minute. Each coin uses one request per round – with many coins the intervals get longer automatically.
 
-## 🗂️ Dateien
+## 🗂️ Files
 
-| Datei | Inhalt |
+| File | Content |
 |---|---|
-| `bot.py` | Telegram-Befehle und Start |
-| `tracker.py` | Käufe abfragen und posten |
-| `db.py` | Einstellungen pro Gruppe (SQLite) |
-| `.env.example` | Vorlage für Token & Optionen |
-| `Dockerfile` | Für Server/Railway |
+| `bot.py` | Telegram commands and startup |
+| `tracker.py` | Fetches and posts buys |
+| `db.py` | Settings per group (SQLite) |
+| `.env.example` | Template for token & options |
+| `Dockerfile` | For servers/Railway |

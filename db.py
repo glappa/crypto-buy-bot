@@ -1,4 +1,4 @@
-"""Speichert die Einstellungen pro (Bot, Chat) in SQLite."""
+"""Stores settings per (bot, chat) in SQLite."""
 import json
 import sqlite3
 
