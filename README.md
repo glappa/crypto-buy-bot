@@ -85,6 +85,13 @@ docker run -d --name buybot --restart unless-stopped --env-file .env -v buybot-d
 docker logs -f buybot                       # view logs
 ```
 
+**Update to the latest version** (your settings are kept):
+```bash
+cd crypto-buy-bot && git pull
+docker build -t buybot . && docker rm -f buybot
+docker run -d --name buybot --restart unless-stopped --env-file .env -v buybot-data:/data buybot
+```
+
 ### Step 3 – Add the bot to your group
 
 1. Open the chat with your bot and press **Start** → button **"➕ Add to group"** → choose the group.

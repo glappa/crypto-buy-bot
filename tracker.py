@@ -32,28 +32,49 @@ async def get(path: str, **params) -> dict:
     return (await http.get(path, params=params)).raise_for_status().json()
 
 
-async def find_token(ca: str, net: str | None = None) -> dict | None:
-    """Finds the pool with the most liquidity for the CA."""
-    params = {"query": ca, "include": "base_token,quote_token"} | ({"network": net} if net else {})
-    r = await get("/search/pools", **params)
-    tokens = {t["id"]: t["attributes"] for t in r.get("included", [])}
+def split_id(ident: str) -> tuple[str, str]:
+    """GeckoTerminal IDs look like "<network>_<address>", e.g. "base_0xabc…"."""
+    net, _, addr = ident.rpartition("_")
+    return net, addr
+
+
+def best_pool(r: dict, ca: str) -> dict | None:
+    """Picks the pool with the most liquidity that contains the CA."""
+    tokens = {t["id"]: t.get("attributes", {}) for t in r.get("included", [])}
     best, liq_max = None, -1.0
-    for p in r["data"]:
-        rel, attrs = p["relationships"], p["attributes"]
-        base, quote = (tokens.get(rel[k]["data"]["id"], {}) for k in ("base_token", "quote_token"))
-        mine, other = (base, quote) if base.get("address", "").lower() == ca.lower() else (quote, base)
-        liq = float(attrs.get("reserve_in_usd") or 0)
-        n = rel["network"]["data"]["id"]
-        if n in NETS and mine.get("address", "").lower() == ca.lower() and liq > liq_max:
+    for p in r.get("data", []):
+        ids = [p["relationships"][k]["data"]["id"] for k in ("base_token", "quote_token")]
+        if split_id(ids[1])[1].lower() == ca.lower():
+            ids.reverse()  # our token is the quote token of this pool
+        net, addr = split_id(ids[0])
+        liq = float(p["attributes"].get("reserve_in_usd") or 0)
+        if net in NETS and addr.lower() == ca.lower() and liq > liq_max:
             liq_max = liq
-            best = {"ca": mine["address"], "net": n, "pool": attrs["address"], "name": mine["name"],
-                    "symbol": mine["symbol"], "quote": other.get("symbol", "")}
-    if best:  # remember supply once -> market cap = supply * price
+            best = {"ca": addr, "net": net, "pool": split_id(p["id"])[1], "name": tokens.get(ids[0], {}).get("name"),
+                    "symbol": tokens.get(ids[0], {}).get("symbol"), "quote": tokens.get(ids[1], {}).get("symbol", "")}
+    return best
+
+
+async def find_token(ca: str, net: str | None = None) -> dict | None:
+    """Global search first, then the token's pools on each chain as fallback."""
+    sources = [("/search/pools", {"query": ca} | ({"network": net} if net else {}))]
+    sources += [(f"/networks/{n}/tokens/{ca}/pools", {}) for n in ([net] if net else NETS)]
+    best = None
+    for path, params in sources:
+        try:
+            if best := best_pool(await get(path, include="base_token,quote_token", **params), ca):
+                break
+        except Exception as err:  # 404 = token not on this chain
+            log.info("Lookup %s: %s", path, err)
+    if best:  # token info: name/symbol fallback + supply for market cap (= supply * price)
+        t = {}
         try:
             t = (await get(f"/networks/{best['net']}/tokens/{best['ca']}"))["data"]["attributes"]
             best["supply"] = float(t["fdv_usd"]) / float(t["price_usd"])
         except Exception:
             best["supply"] = 0
+        best["name"] = best["name"] or t.get("name") or "Token"
+        best["symbol"] = best["symbol"] or t.get("symbol") or "?"
     return best
 
 
@@ -144,7 +165,10 @@ async def run(bots: dict[int, Bot], interval: float):
             for t in new:
                 for key in keys:
                     cfg = db.chats.get(key)
-                    if cfg and is_buy(cfg, t) and float(t["volume_in_usd"]) >= cfg["min_buy"]:
-                        await send(bots[key[0]], key, cfg, render(cfg, t))
+                    try:
+                        if cfg and is_buy(cfg, t) and float(t["volume_in_usd"]) >= cfg["min_buy"]:
+                            await send(bots[key[0]], key, cfg, render(cfg, t))
+                    except Exception as err:  # never let one odd trade stop the bot
+                        log.warning("Skipping trade %s: %r", t.get("tx_hash"), err)
             await asyncio.sleep(2.1)  # GeckoTerminal allows ~30 requests/minute
         await asyncio.sleep(interval)

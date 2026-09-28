@@ -181,7 +181,10 @@ async def test(update: Update, ctx: Ctx):
     c = cfg(update, ctx)
     if not c.get("pool"):
         return await reply(update, "No coin set up yet → /setup &lt;CA&gt;")
-    buys = [t["attributes"] for t in await tracker.trades(c["net"], c["pool"]) if tracker.is_buy(c, t["attributes"])]
+    try:
+        buys = [t["attributes"] for t in await tracker.trades(c["net"], c["pool"]) if tracker.is_buy(c, t["attributes"])]
+    except Exception as err:
+        return await reply(update, f"⚠️ GeckoTerminal error: {html.escape(repr(err))}")
     if not buys:
         return await reply(update, "No buys found in the last 24 h.")
     await tracker.send(ctx.bot, key(update, ctx), c, tracker.render(c, buys[0]))
