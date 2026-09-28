@@ -2,9 +2,11 @@
 import asyncio
 import html
 import logging
+import math
+import os
 
 import httpx
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot
 from telegram.error import ChatMigrated, Forbidden, RetryAfter, TelegramError
 
 import db
@@ -13,16 +15,19 @@ log = logging.getLogger(__name__)
 http = httpx.AsyncClient(base_url="https://api.geckoterminal.com/api/v2", timeout=20,
                          headers={"Accept": "application/json;version=20230302"})
 
-# GeckoTerminal ID: (name, TX link, wallet link, DexScreener ID, buy link)
+# Key = GeckoTerminal network ID. "rpc" can be overridden with RPC_<KEY> in .env (e.g. RPC_BASE).
 NETS = {
-    "solana": ("Solana", "https://solscan.io/tx/{}", "https://solscan.io/account/{}", "solana",
-               "https://jup.ag/swap/SOL-{}"),
-    "base": ("Base", "https://basescan.org/tx/{}", "https://basescan.org/address/{}", "base",
-             "https://app.uniswap.org/swap?chain=base&outputCurrency={}"),
-    "eth": ("Ethereum", "https://etherscan.io/tx/{}", "https://etherscan.io/address/{}", "ethereum",
-            "https://app.uniswap.org/swap?chain=mainnet&outputCurrency={}"),
-    "bsc": ("BSC", "https://bscscan.com/tx/{}", "https://bscscan.com/address/{}", "bsc",
-            "https://pancakeswap.finance/swap?outputCurrency={}"),
+    "solana": {"name": "Solana", "icon": "🟣", "tx": "https://solscan.io/tx/{}", "wallet": "https://solscan.io/account/{}",
+               "dex": "solana", "buy": "https://jup.ag/swap/SOL-{}", "rpc": "https://api.mainnet-beta.solana.com"},
+    "base": {"name": "Base", "icon": "🔵", "tx": "https://basescan.org/tx/{}", "wallet": "https://basescan.org/address/{}",
+             "dex": "base", "buy": "https://app.uniswap.org/swap?chain=base&outputCurrency={}",
+             "rpc": "https://mainnet.base.org"},
+    "eth": {"name": "Ethereum", "icon": "🔷", "tx": "https://etherscan.io/tx/{}", "wallet": "https://etherscan.io/address/{}",
+            "dex": "ethereum", "buy": "https://app.uniswap.org/swap?chain=mainnet&outputCurrency={}",
+            "rpc": "https://ethereum-rpc.publicnode.com"},
+    "bsc": {"name": "BSC", "icon": "🔶", "tx": "https://bscscan.com/tx/{}", "wallet": "https://bscscan.com/address/{}",
+            "dex": "bsc", "buy": "https://pancakeswap.finance/swap?outputCurrency={}",
+            "rpc": "https://bsc-dataseed.bnbchain.org"},
 }
 ALIASES = {"sol": "solana", "ethereum": "eth", "bnb": "bsc"}
 LINKS = {"tg": "💬 Telegram", "x": "𝕏 Twitter", "web": "🌐 Website", "buy": "🛒 Buy"}
@@ -88,45 +93,72 @@ def is_buy(cfg: dict, t: dict) -> bool:
     return to.lower() == cfg["ca"].lower() if to else t["kind"] == "buy"
 
 
-def fmt(x: float, usd: bool = False) -> str:
-    x, pre = float(x), "$" if usd else ""
-    for div, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
-        if x >= div:
-            return f"{pre}{x / div:.2f}{suffix}"
-    return f"{pre}{x:.4g}"
+async def rpc(net: str, method: str, params: list):
+    url = os.getenv(f"RPC_{net.upper()}") or NETS[net]["rpc"]
+    body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+    r = (await http.post(url, json=body, headers={"Accept": "application/json"})).raise_for_status().json()
+    if "error" in r:
+        raise RuntimeError(r["error"])
+    return r["result"]
 
 
-def render(cfg: dict, t: dict) -> str:
-    _, tx_url, wallet_url, *_ = NETS[cfg["net"]]
-    usd, e = float(t["volume_in_usd"]), html.escape
+async def is_new_holder(cfg: dict, t: dict) -> bool:
+    """True if the buyer's current balance is (about) just this buy, i.e. they held nothing before."""
+    net, owner, ca = cfg["net"], t["tx_from_address"], cfg["ca"]
+    try:
+        if net == "solana":
+            accounts = (await rpc(net, "getTokenAccountsByOwner", [owner, {"mint": ca}, {"encoding": "jsonParsed"}]))["value"]
+            balance = sum(float(a["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmountString"]) for a in accounts)
+        else:  # ERC-20: balanceOf(owner) and decimals()
+            call = lambda data: rpc(net, "eth_call", [{"to": ca, "data": data}, "latest"])  # noqa: E731
+            raw, decimals = await asyncio.gather(call("0x70a08231" + owner[2:].lower().rjust(64, "0")), call("0x313ce567"))
+            balance = int(raw, 16) / 10 ** int(decimals, 16)
+        return 0 < balance <= float(t["to_token_amount"]) * 1.01
+    except Exception as err:
+        log.info("Holder check failed for %s: %r", owner, err)
+        return False
+
+
+def amount(x) -> str:
+    """Readable number without scientific notation: 1,234,567 · 352 · 1.5 · 0.000084"""
+    x = float(x)
+    if x >= 1000:
+        return f"{x:,.0f}"
+    if x <= 0:
+        return "0"
+    decimals = 2 if x >= 1 else 3 - math.floor(math.log10(x))  # 4 significant digits below 1
+    return f"{x:.{decimals}f}".rstrip("0").rstrip(".")
+
+
+def render(cfg: dict, t: dict, new_holder: bool = False) -> str:
+    n, e = NETS[cfg["net"]], html.escape
+    a = lambda url, label: f'<a href="{e(url)}">{label}</a>'  # noqa: E731
+    usd, buyer = float(t["volume_in_usd"]), t["tx_from_address"]
     price = float(t.get("price_to_in_usd") or 0)
+    links = {"📈 Chart": f"https://dexscreener.com/{n['dex']}/{cfg['pool']}", LINKS["buy"]: n["buy"].format(cfg["ca"])}
+    links |= {LINKS[k]: url for k, url in cfg["links"].items()}  # a custom buy link replaces the default one
     lines = [
-        f"<b>{e(cfg['title'] or cfg['name'])} Buy!</b>",
+        f"{n['icon']} | <b>{e(cfg['title'] or cfg['name'])}</b>",
+        "",
+        f"<b>{e(cfg['symbol'])} Buy!</b>",
         cfg["emoji"] * (min(50, max(1, int(usd // cfg["step"]))) if cfg["step"] else 1),
         "",
-        f"💵 <b>{fmt(usd, True)}</b> ({fmt(t['from_token_amount'])} {e(cfg['quote'])})",
-        f"🪙 {fmt(t['to_token_amount'])} {e(cfg['symbol'])}",
-        f"👤 <a href=\"{wallet_url.format(t['tx_from_address'])}\">Buyer</a>"
-        f" | <a href=\"{tx_url.format(t['tx_hash'])}\">TX</a>",
+        f"💲 {amount(t['from_token_amount'])} {e(cfg['quote'])} (${usd:,.2f})",
+        f"🪙 {amount(t['to_token_amount'])} {e(cfg['symbol'])}",
+        f"👤 {a(n['wallet'].format(buyer), f'{buyer[:6]}...{buyer[-4:]}')} | {a(n['tx'].format(t['tx_hash']), 'Txn')}",
     ]
+    if new_holder:
+        lines.append("✅ New Holder")
     if cfg.get("supply") and price:
-        lines.append(f"📊 MC {fmt(cfg['supply'] * price, True)}")
+        lines.append(f"📊 Market Cap <b>${cfg['supply'] * price:,.0f}</b>")
+    lines += ["", " | ".join(a(url, label) for label, url in links.items())]
     if cfg["whale"] and usd >= cfg["whale"]:
-        lines.insert(1, "🐳 <b>WHALE BUY!</b> 🐳")
+        lines.insert(3, "🐳 <b>WHALE BUY!</b> 🐳")
     return "\n".join(lines)
 
 
-def buttons(cfg: dict) -> InlineKeyboardMarkup:
-    *_, dex, buy_url = NETS[cfg["net"]]
-    links = {"📈 Chart": f"https://dexscreener.com/{dex}/{cfg['pool']}", LINKS["buy"]: buy_url.format(cfg["ca"])}
-    links |= {LINKS[k]: url for k, url in cfg["links"].items()}
-    items = [InlineKeyboardButton(label, url=url) for label, url in links.items()]
-    return InlineKeyboardMarkup([items[i:i + 2] for i in range(0, len(items), 2)])
-
-
 async def send(bot: Bot, key: tuple[int, int], cfg: dict, text: str):
-    kw = {"chat_id": key[1], "caption" if cfg["media"] else "text": text,
-          "parse_mode": "HTML", "reply_markup": buttons(cfg)}
+    kw = {"chat_id": key[1], "caption" if cfg["media"] else "text": text, "parse_mode": "HTML"}
     try:
         if m := cfg["media"]:
             await getattr(bot, f"send_{m['type']}")(**{m["type"]: m["id"]}, **kw)
@@ -163,11 +195,14 @@ async def run(bots: dict[int, Bot], interval: float):
             new = [t["attributes"] for t in reversed(data) if t["id"] not in seen[p]] if p in seen else []
             seen[p] = {t["id"] for t in data}
             for t in new:
+                holder = None  # checked once per buy, only if some chat posts it
                 for key in keys:
                     cfg = db.chats.get(key)
                     try:
                         if cfg and is_buy(cfg, t) and float(t["volume_in_usd"]) >= cfg["min_buy"]:
-                            await send(bots[key[0]], key, cfg, render(cfg, t))
+                            if holder is None:
+                                holder = await is_new_holder(cfg, t)
+                            await send(bots[key[0]], key, cfg, render(cfg, t, holder))
                     except Exception as err:  # never let one odd trade stop the bot
                         log.warning("Skipping trade %s: %r", t.get("tx_hash"), err)
             await asyncio.sleep(2.1)  # GeckoTerminal allows ~30 requests/minute

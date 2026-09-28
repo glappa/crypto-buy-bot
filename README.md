@@ -5,12 +5,13 @@ Posts every buy of a coin live to your Telegram group – just enter the **contr
 **Chains:** Solana · **Base** · Ethereum · BSC (auto-detected)
 
 **Features**
-- 💵 Buy value in $ and in SOL/ETH, tokens received, market cap, links to buyer + TX
+- 💲 Amount paid in SOL/ETH and $, tokens received, buyer wallet + Txn link, market cap
+- ✅ **New Holder** tag when the buyer didn't hold the coin before
 - 🎚️ **Minimum buy** – e.g. only post buys from $50 (`/minbuy 50`)
 - 🚀 Custom emoji + "$ per emoji" (bigger buys = longer emoji row)
 - 🐳 Whale alert from an amount you choose
 - 🏷️ **Custom project name and banner per group** (image, GIF or video)
-- 🔗 Buttons: Chart (DexScreener), Buy, Telegram, X, Website
+- 🔗 Links: Chart (DexScreener), Buy, Telegram, X, Website
 - ⏸ Pause/resume, preview post, settings overview via `/settings`
 - 👥 **Several bots at once** – every project can have a bot with its own name and profile picture
 - 🔒 Only group admins can change settings
@@ -19,17 +20,20 @@ Posts every buy of a coin live to your Telegram group – just enter the **contr
 This is what a post looks like:
 
 ```
-My Project Buy!
-🐳 WHALE BUY! 🐳
-🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀
+🔵 | My Project
 
-💵 $2.50K (0.71 ETH)
-🪙 31.25M TST
-👤 Buyer | TX
-📊 MC $80.00K
-[📈 Chart] [🛒 Buy]
-[💬 Telegram] [𝕏 Twitter]
+BTCV Buy!
+🚀
+
+💲 0.000084 ETH ($0.23)
+🪙 352 BTCV
+👤 0xaf2b...3812 | Txn
+✅ New Holder
+📊 Market Cap $352,462
+
+📈 Chart | 🛒 Buy | 💬 Telegram | 𝕏 Twitter
 ```
+The first line shows the chain (🟣 Solana · 🔵 Base · 🔷 Ethereum · 🔶 BSC) and your project name.
 
 ---
 
@@ -121,7 +125,7 @@ The bot automatically picks the pool with the most liquidity. Then use `/test` t
 | `/emoji <emoji> [usd]` | `/emoji 🚀 20` | 1 🚀 per $20 (max. 50) |
 | `/name <text>` | `/name Pepe Army` | Project name in posts (empty `/name` = reset) |
 | `/media` | *reply to an image/GIF/video* | Banner attached to every buy (`/media off` = remove) |
-| `/link <tg\|x\|web\|buy> <url>` | `/link x https://x.com/pepe` | Button below posts (`off` instead of URL = remove) |
+| `/link <tg\|x\|web\|buy> <url>` | `/link x https://x.com/pepe` | Link below posts (`off` instead of URL = remove) |
 | `/whale <usd>` | `/whale 1000` | 🐳 alert from $1000 (`0` = off) |
 | `/pause` · `/resume` | | Pause / resume posts |
 | `/settings` | | Show all settings |
@@ -165,8 +169,10 @@ To change the name or picture later: `/setname` or `/setuserpic` in BotFather.
 | "Only admins …" | Only group admins can configure the bot. |
 | Buys arrive with a delay | Normal: the bot checks every ~15 s. Adjust `POLL_SECONDS` in `.env` (not below 10). |
 | Market cap missing | GeckoTerminal doesn't know the token's supply yet – run `/setup` again later. |
+| "New Holder" never shows | The free public RPC may be rate-limited. Set your own RPC in `.env`, e.g. `RPC_BASE=https://…` (free at Alchemy, QuickNode, Helius for Solana). |
 
 **Notes**
+- **New Holder** = the buyer's wallet holds (about) only what they just bought. It's checked a few seconds after the buy via the chain's public RPC.
 - Only the pool with the most liquidity is tracked. Buys through other pools of the same coin won't show up.
 - The free GeckoTerminal API allows ~30 requests/minute. Each coin uses one request per round – with many coins the intervals get longer automatically.
 

@@ -22,7 +22,7 @@ HELP = """<b>🤖 Buy Bot – Commands</b> (settings are admin-only)
 /emoji &lt;emoji&gt; [usd] – emoji and $ per emoji (default 🟢 per $10)
 /name &lt;text&gt; – project name shown in posts
 /media – reply to an image/GIF/video: set banner (/media off = remove)
-/link &lt;tg|x|web|buy&gt; &lt;url|off&gt; – buttons below posts
+/link &lt;tg|x|web|buy&gt; &lt;url|off&gt; – links below posts
 /whale &lt;usd&gt; – 🐳 alert from this amount (0 = off)
 /pause · /resume – pause / resume posts
 /settings – current settings
@@ -89,7 +89,7 @@ async def setup(update: Update, ctx: Ctx):
                                    parse_mode="HTML")
     save(update, ctx, **found)
     await msg.edit_text(
-        f"✅ Now tracking <b>{html.escape(found['name'])}</b> (${html.escape(found['symbol'])}) on {tracker.NETS[found['net']][0]}\n"
+        f"✅ Now tracking <b>{html.escape(found['name'])}</b> (${html.escape(found['symbol'])}) on {tracker.NETS[found['net']]['name']}\n"
         f"Pool: <code>{found['pool']}</code>\n\nCustomize with /minbuy, /emoji, /name, /media, /link", parse_mode="HTML")
 
 
@@ -151,7 +151,7 @@ async def link(update: Update, ctx: Ctx):
     kind, url = args
     links = {k: v for k, v in cfg(update, ctx)["links"].items() if k != kind} | ({} if url == "off" else {kind: url})
     save(update, ctx, links=links)
-    await reply(update, f"✅ Button {tracker.LINKS[kind]} {'removed' if url == 'off' else 'set'}")
+    await reply(update, f"✅ Link {tracker.LINKS[kind]} {'removed' if url == 'off' else 'set'}")
 
 
 def pause_cmd(paused: bool):
@@ -169,7 +169,7 @@ async def settings(update: Update, ctx: Ctx):
     links = ", ".join(tracker.LINKS[k] for k in c["links"]) or "–"
     whale = f"from ${c['whale']:g}" if c["whale"] else "off"
     await reply(update, (
-        f"<b>⚙️ Settings</b>\n\nCoin: {html.escape(c['name'])} (${html.escape(c['symbol'])}) · {tracker.NETS[c['net']][0]}\n"
+        f"<b>⚙️ Settings</b>\n\nCoin: {html.escape(c['name'])} (${html.escape(c['symbol'])}) · {tracker.NETS[c['net']]['name']}\n"
         f"CA: <code>{c['ca']}</code>\nName: {html.escape(c['title'] or '–')}\n"
         f"Min. buy: ${c['min_buy']:g}\nEmoji: {c['emoji']} per ${c['step']:g}\n"
         f"Whale: {whale}\nBanner: {'yes' if c['media'] else 'no'}\n"
@@ -187,7 +187,8 @@ async def test(update: Update, ctx: Ctx):
         return await reply(update, f"⚠️ GeckoTerminal error: {html.escape(repr(err))}")
     if not buys:
         return await reply(update, "No buys found in the last 24 h.")
-    await tracker.send(ctx.bot, key(update, ctx), c, tracker.render(c, buys[0]))
+    holder = await tracker.is_new_holder(c, buys[0])
+    await tracker.send(ctx.bot, key(update, ctx), c, tracker.render(c, buys[0], holder))
 
 
 @admin
@@ -213,7 +214,7 @@ COMMANDS = [
     ("emoji", emoji, "Emoji and $ per emoji"),
     ("name", name, "Project name in posts"),
     ("media", media, "Set banner (image/GIF/video)"),
-    ("link", link, "Set link buttons"),
+    ("link", link, "Set links below posts"),
     ("whale", number_cmd("whale", "whale", "✅ Whale alert from ${:g} (0 = off)"), "Whale threshold in $"),
     ("pause", pause_cmd(True), "Pause posts"),
     ("resume", pause_cmd(False), "Resume posts"),
