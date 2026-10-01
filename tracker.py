@@ -4,10 +4,11 @@ import html
 import logging
 import math
 import os
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from telegram import Bot
-from telegram.error import ChatMigrated, Forbidden, RetryAfter, TelegramError
+from telegram.error import BadRequest, ChatMigrated, Forbidden, NetworkError, RetryAfter, TelegramError
 
 import db
 
@@ -31,6 +32,9 @@ NETS = {
 }
 ALIASES = {"sol": "solana", "ethereum": "eth", "bnb": "bsc"}
 LINKS = {"tg": "💬 Telegram", "x": "𝕏 Twitter", "web": "🌐 Website", "buy": "🛒 Buy"}
+MAX_POOLS = 5  # pools tracked per coin (each costs one API request per round)
+REQUEST_GAP = 2.1  # seconds between GeckoTerminal requests (free API: ~30 requests/minute)
+CATCH_UP = timedelta(minutes=float(os.getenv("CATCH_UP_MINUTES", "30")))  # post missed trades up to this old
 
 
 async def get(path: str, **params) -> dict:
@@ -43,43 +47,57 @@ def split_id(ident: str) -> tuple[str, str]:
     return net, addr
 
 
-def best_pool(r: dict, ca: str) -> dict | None:
-    """Picks the pool with the most liquidity that contains the CA."""
+def parse_pools(r: dict, ca: str) -> list[dict]:
+    """All pools in a GeckoTerminal response that contain the CA, most liquidity first."""
     tokens = {t["id"]: t.get("attributes", {}) for t in r.get("included", [])}
-    best, liq_max = None, -1.0
+    found = []
     for p in r.get("data", []):
         ids = [p["relationships"][k]["data"]["id"] for k in ("base_token", "quote_token")]
         if split_id(ids[1])[1].lower() == ca.lower():
             ids.reverse()  # our token is the quote token of this pool
         net, addr = split_id(ids[0])
-        liq = float(p["attributes"].get("reserve_in_usd") or 0)
-        if net in NETS and addr.lower() == ca.lower() and liq > liq_max:
-            liq_max = liq
-            best = {"ca": addr, "net": net, "pool": split_id(p["id"])[1], "name": tokens.get(ids[0], {}).get("name"),
-                    "symbol": tokens.get(ids[0], {}).get("symbol"), "quote": tokens.get(ids[1], {}).get("symbol", "")}
-    return best
+        if net in NETS and addr.lower() == ca.lower():
+            found.append({"ca": addr, "net": net, "pool": split_id(p["id"])[1],
+                          "liq": float(p["attributes"].get("reserve_in_usd") or 0),
+                          "name": tokens.get(ids[0], {}).get("name"), "symbol": tokens.get(ids[0], {}).get("symbol"),
+                          "quote": tokens.get(ids[1], {}).get("symbol", "")})
+    return sorted(found, key=lambda p: -p["liq"])
 
 
 async def find_token(ca: str, net: str | None = None) -> dict | None:
-    """Global search first, then the token's pools on each chain as fallback."""
+    """Finds the coin's chain and all of its relevant pools (global search, then each chain as fallback)."""
     sources = [("/search/pools", {"query": ca} | ({"network": net} if net else {}))]
     sources += [(f"/networks/{n}/tokens/{ca}/pools", {}) for n in ([net] if net else NETS)]
-    best = None
+    found, trouble = [], None
     for path, params in sources:
         try:
-            if best := best_pool(await get(path, include="base_token,quote_token", **params), ca):
+            if found := parse_pools(await get(path, include="base_token,quote_token", **params), ca):
                 break
-        except Exception as err:  # 404 = token not on this chain
-            log.info("Lookup %s: %s", path, err)
-    if best:  # token info: name/symbol fallback + supply for market cap (= supply * price)
-        t = {}
-        try:
-            t = (await get(f"/networks/{best['net']}/tokens/{best['ca']}"))["data"]["attributes"]
-            best["supply"] = float(t["fdv_usd"]) / float(t["price_usd"])
-        except Exception:
-            best["supply"] = 0
-        best["name"] = best["name"] or t.get("name") or "Token"
-        best["symbol"] = best["symbol"] or t.get("symbol") or "?"
+        except Exception as err:  # 4xx = token not on this chain, anything else = GeckoTerminal trouble
+            log.info("Lookup %s: %r", path, err)
+            status = getattr(getattr(err, "response", None), "status_code", 0)
+            trouble = err if status == 429 or not 400 <= status < 500 else trouble
+    if not found:
+        if trouble:
+            raise trouble
+        return None
+    net = found[0]["net"]
+    try:  # complete pool list of the coin on that chain
+        found = parse_pools(await get(f"/networks/{net}/tokens/{ca}/pools", include="base_token,quote_token"), ca) or found
+    except Exception as err:
+        log.info("Pool list for %s: %s", ca, err)
+    top = found[0]
+    pools = [p for p in found if p["net"] == net and p["liq"] >= top["liq"] * 0.02][:MAX_POOLS]  # skip dust pools
+    best = {k: top[k] for k in ("ca", "net", "pool", "name", "symbol", "quote")}
+    best["pools"] = {p["pool"]: p["quote"] for p in pools}
+    t = {}  # token info: name/symbol fallback + supply for market cap (= supply * price)
+    try:
+        t = (await get(f"/networks/{net}/tokens/{best['ca']}"))["data"]["attributes"]
+        best["supply"] = float(t["fdv_usd"]) / float(t["price_usd"])
+    except Exception:
+        best["supply"] = 0
+    best["name"] = best["name"] or t.get("name") or "Token"
+    best["symbol"] = best["symbol"] or t.get("symbol") or "?"
     return best
 
 
@@ -165,55 +183,110 @@ def render(cfg: dict, t: dict, new_holder: bool = False) -> str:
     return "\n".join(lines)
 
 
-async def send(bot: Bot, key: tuple[int, int], cfg: dict, text: str):
+async def send(bot: Bot, key: tuple[int, int], cfg: dict, text: str, tries: int = 3) -> bool:
+    """Posts to the chat; retries and falls back to text-only so a trade is never silently lost."""
     kw = {"chat_id": key[1], "caption" if cfg["media"] else "text": text, "parse_mode": "HTML"}
     try:
         if m := cfg["media"]:
             await getattr(bot, f"send_{m['type']}")(**{m["type"]: m["id"]}, **kw)
         else:
             await bot.send_message(disable_web_page_preview=True, **kw)
-    except RetryAfter as err:
+        return True
+    except RetryAfter as err:  # Telegram flood limit -> wait and send again
+        log.warning("Flood limit in chat %s, waiting %ss", key[1], err.retry_after)
         await asyncio.sleep(err.retry_after)
-        await send(bot, key, cfg, text)
+        return await send(bot, key, cfg, text, tries)
     except ChatMigrated as err:  # group was upgraded to a supergroup
+        log.info("Chat %s migrated to %s", key[1], err.new_chat_id)
+        db.save((key[0], err.new_chat_id), db.chats.get(key, cfg))
         db.delete(key)
-        db.save((key[0], err.new_chat_id), cfg)
-        await send(bot, (key[0], err.new_chat_id), cfg, text)
+        return await send(bot, (key[0], err.new_chat_id), cfg, text, tries)
     except Forbidden:  # bot was removed
+        log.warning("Bot was removed from chat %s – settings deleted", key[1])
         db.delete(key)
+    except BadRequest as err:
+        if cfg["media"]:  # e.g. banner no longer valid -> still post the trade
+            log.warning("Banner failed in chat %s (%s) – posting without banner", key[1], err)
+            return await send(bot, key, {**cfg, "media": None}, text, tries)
+        log.error("Telegram rejected post in chat %s: %s", key[1], err)
+    except NetworkError as err:
+        if tries > 1:
+            log.warning("Network error in chat %s (%s) – retrying", key[1], err)
+            await asyncio.sleep(3)
+            return await send(bot, key, cfg, text, tries - 1)
+        log.error("Sending to chat %s failed: %s", key[1], err)
     except TelegramError as err:
-        log.warning("Sending to %s failed: %s", key[1], err)
+        log.error("Sending to chat %s failed: %s", key[1], err)
+    return False
+
+
+def too_old(t: dict) -> bool:
+    try:
+        return datetime.now(timezone.utc) - datetime.fromisoformat(t["block_timestamp"].replace("Z", "+00:00")) > CATCH_UP
+    except Exception:  # unknown/missing timestamp -> rather post it
+        return False
+
+
+async def handle(bots: dict[int, Bot], keys: list, quote: str, t: dict):
+    """Decides for every chat whether to post the trade – and logs each decision."""
+    holder = None  # checked once per buy, only if some chat posts it
+    for key in keys:
+        if not (cfg := db.chats.get(key)):
+            continue
+        cfg = {**cfg, "quote": quote}  # quote token of the pool this trade happened in
+        buy, usd = is_buy(cfg, t), float(t["volume_in_usd"])
+        what = f"{'BUY' if buy else 'SELL' if is_sell(cfg, t) else 'OTHER'} ${usd:,.2f} {cfg['symbol']} tx {t['tx_hash']}"
+        if not buy and not (cfg["sells"] and is_sell(cfg, t)):
+            log.info("%s -> chat %s: skipped (sells off)", what, key[1])
+        elif usd < cfg["min_buy"]:
+            log.info("%s -> chat %s: skipped (below min $%s)", what, key[1], f"{cfg['min_buy']:g}")
+        else:
+            if holder is None:
+                holder = buy and await is_new_holder(cfg, t)
+            ok = await send(bots[key[0]], key, cfg, render(cfg, t, holder))
+            log.info("%s -> chat %s: %s", what, key[1], "posted" if ok else "FAILED")
+
+
+async def upgrade(bots: dict[int, Bot]):
+    """Coins set up before multi-pool tracking get their full pool list once."""
+    for key, cfg in list(db.chats.items()):
+        if key[0] in bots and cfg.get("pool") and "pools" not in cfg:
+            if found := await find_token(cfg["ca"], cfg["net"]):
+                db.save(key, {**cfg, "pools": found["pools"]})
+                log.info("Chat %s now tracks %d pool(s) of %s", key[1], len(found["pools"]), cfg["symbol"])
 
 
 async def run(bots: dict[int, Bot], interval: float):
-    seen: dict[tuple[str, str], set[str]] = {}
+    await upgrade(bots)
+    seen = db.load_seen()
     while True:
-        pools: dict[tuple[str, str], list] = {}
+        pools: dict[tuple[str, str], tuple[str, list]] = {}
         for key, cfg in db.chats.items():
             if key[0] in bots and cfg.get("pool") and not cfg["paused"]:
-                pools.setdefault((cfg["net"], cfg["pool"]), []).append(key)
-        for p in seen.keys() - pools.keys():  # forget paused pools -> no backfill on resume
+                for pool, quote in (cfg.get("pools") or {cfg["pool"]: cfg["quote"]}).items():
+                    pools.setdefault((cfg["net"], pool), (quote, []))[1].append(key)
+        for p in seen.keys() - pools.keys():  # forget paused/removed pools -> no backfill on resume
             del seen[p]
-        for p, keys in pools.items():
+            db.save_seen(p, None)
+        for p, (quote, keys) in pools.items():
             try:
                 data = await trades(*p)
-            except Exception as err:
-                log.warning("Trades %s: %s", p, err)
+            except Exception as err:  # nothing is lost: missed trades are picked up next round
+                log.warning("Trades %s: %r – retrying next round", p, err)
                 continue
-            new = [t["attributes"] for t in reversed(data) if t["id"] not in seen[p]] if p in seen else []
-            seen[p] = {t["id"] for t in data}
-            for t in new:
-                holder = None  # checked once per buy, only if some chat posts it
-                for key in keys:
-                    if not (cfg := db.chats.get(key)):
-                        continue
+            if p in seen:
+                new = [t["attributes"] for t in reversed(data) if t["id"] not in seen[p]]
+                if old := sum(map(too_old, new)):
+                    log.info("Pool %s:%s – %d missed trade(s) older than %s not posted", *p, old, CATCH_UP)
+                for t in new:
                     try:
-                        buy = is_buy(cfg, t)
-                        if (buy or cfg["sells"] and is_sell(cfg, t)) and float(t["volume_in_usd"]) >= cfg["min_buy"]:
-                            if holder is None:
-                                holder = buy and await is_new_holder(cfg, t)
-                            await send(bots[key[0]], key, cfg, render(cfg, t, holder))
+                        if not too_old(t):
+                            await handle(bots, keys, quote, t)
                     except Exception as err:  # never let one odd trade stop the bot
-                        log.warning("Skipping trade %s: %r", t.get("tx_hash"), err)
-            await asyncio.sleep(2.1)  # GeckoTerminal allows ~30 requests/minute
+                        log.exception("Trade %s could not be handled: %r", t.get("tx_hash"), err)
+            else:
+                log.info("Now watching pool %s:%s (%d chat(s))", *p, len(keys))
+            seen[p] = {t["id"] for t in data}
+            db.save_seen(p, seen[p])
+            await asyncio.sleep(REQUEST_GAP)
         await asyncio.sleep(interval)

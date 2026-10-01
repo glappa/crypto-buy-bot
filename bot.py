@@ -4,6 +4,7 @@ import html
 import logging
 import os
 from contextlib import AsyncExitStack
+from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
@@ -83,15 +84,15 @@ async def setup(update: Update, ctx: Ctx):
     try:
         found = await tracker.find_token(ctx.args[0], net)
     except Exception as err:
-        log.warning("Search failed: %s", err)
-        found = None
+        log.warning("Search failed: %r", err)
+        return await msg.edit_text(f"⚠️ GeckoTerminal not reachable right now – try again in a minute.\n{err!r}")
     if not found:
         return await msg.edit_text("❌ No pool found. Check the CA or specify the chain, e.g. /setup &lt;CA&gt; base",
                                    parse_mode="HTML")
     save(update, ctx, **found)
     await msg.edit_text(
         f"✅ Now tracking <b>{html.escape(found['name'])}</b> (${html.escape(found['symbol'])}) on {tracker.NETS[found['net']]['name']}\n"
-        f"Pool: <code>{found['pool']}</code>\n\nCustomize with /minbuy, /emoji, /name, /media, /link", parse_mode="HTML")
+        f"Watching {len(found['pools'])} pool(s), main pool: <code>{found['pool']}</code>\n\nCustomize with /minbuy, /emoji, /name, /media, /link", parse_mode="HTML")
 
 
 def number_cmd(name: str, field: str, done: str):
@@ -181,7 +182,7 @@ async def settings(update: Update, ctx: Ctx):
         f"<b>⚙️ Settings</b>\n\nCoin: {html.escape(c['name'])} (${html.escape(c['symbol'])}) · {tracker.NETS[c['net']]['name']}\n"
         f"CA: <code>{c['ca']}</code>\nName: {html.escape(c['title'] or '–')}\n"
         f"Min. buy: ${c['min_buy']:g}\nEmoji: {c['emoji']} per ${c['step']:g}\n"
-        f"Whale: {whale}\nSells: {'on' if c['sells'] else 'off'}\nBanner: {'yes' if c['media'] else 'no'}\n"
+        f"Pools: {len(c.get('pools') or [c['pool']])}\nWhale: {whale}\nSells: {'on' if c['sells'] else 'off'}\nBanner: {'yes' if c['media'] else 'no'}\n"
         f"Links: {links}\nStatus: {'⏸ paused' if c['paused'] else '▶️ active'}"))
 
 
@@ -217,6 +218,19 @@ async def membership(update: Update, ctx: Ctx):
         db.delete((ctx.bot.id, m.chat.id))
 
 
+async def log_command(update: Update, ctx: Ctx):
+    msg = update.effective_message
+    log.info("Chat %s, user %s: %s", update.effective_chat.id,
+             update.effective_user.id if update.effective_user else "-", msg.text or msg.caption)
+
+
+async def on_error(update: object, ctx: Ctx):
+    """Logs every error with traceback and tells the chat what went wrong."""
+    log.error("Error while handling %s", update, exc_info=ctx.error)
+    if isinstance(update, Update) and update.effective_message:
+        await update.effective_message.reply_text(f"⚠️ Error: {ctx.error!r}")
+
+
 COMMANDS = [
     ("setup", setup, "Track a coin by CA"),
     ("minbuy", number_cmd("minbuy", "min_buy", "✅ Only posting buys from ${:g}"), "Minimum buy in $"),
@@ -237,6 +251,8 @@ COMMANDS = [
 
 def build(token: str) -> Application:
     app = Application.builder().token(token).build()
+    app.add_handler(MessageHandler(filters.COMMAND | filters.CaptionRegex(r"^/"), log_command), group=-1)
+    app.add_error_handler(on_error)
     app.add_handler(CommandHandler("start", start))
     for command, handler, _ in COMMANDS:
         app.add_handler(CommandHandler(command, handler))
@@ -248,19 +264,22 @@ def build(token: str) -> Application:
 
 async def main():
     load_dotenv()
-    logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
+    db_path = os.getenv("DB_PATH", "buybot.db")
+    log_file = os.getenv("LOG_FILE") or os.path.join(os.path.dirname(db_path), "buybot.log")  # next to the DB
+    logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO, handlers=[
+        logging.StreamHandler(), RotatingFileHandler(log_file, maxBytes=5_000_000, backupCount=5, encoding="utf-8")])
     logging.getLogger("httpx").setLevel(logging.WARNING)
     tokens = [t.strip() for t in os.getenv("BOT_TOKENS", os.getenv("BOT_TOKEN", "")).split(",") if t.strip()]
     if not tokens:
         raise SystemExit("BOT_TOKENS missing – see .env.example")
-    db.init(os.getenv("DB_PATH", "buybot.db"))
+    db.init(db_path)
     async with AsyncExitStack() as stack:
         bots = {}
         for token in tokens:  # several tokens = several bots, each with its own name/picture
             app = await stack.enter_async_context(build(token))
             await app.start()
             stack.push_async_callback(app.stop)
-            await app.updater.start_polling(drop_pending_updates=True)
+            await app.updater.start_polling()  # commands sent during a restart are handled too
             stack.push_async_callback(app.updater.stop)
             await app.bot.set_my_commands([BotCommand(c, d) for c, _, d in COMMANDS])
             bots[app.bot.id] = app.bot

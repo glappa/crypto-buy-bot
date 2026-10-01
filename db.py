@@ -13,6 +13,7 @@ def init(path: str):
     global _con
     _con = sqlite3.connect(path)
     _con.execute("CREATE TABLE IF NOT EXISTS chats (bot INTEGER, chat INTEGER, cfg TEXT, PRIMARY KEY (bot, chat))")
+    _con.execute("CREATE TABLE IF NOT EXISTS seen (pool TEXT PRIMARY KEY, ids TEXT)")
     chats.update({(b, c): {**DEFAULTS, **json.loads(j)} for b, c, j in _con.execute("SELECT * FROM chats")})
 
 
@@ -29,4 +30,17 @@ def save(key, cfg: dict):
 def delete(key):
     chats.pop(key, None)
     _con.execute("DELETE FROM chats WHERE bot = ? AND chat = ?", key)
+    _con.commit()
+
+
+def load_seen() -> dict[tuple[str, str], set[str]]:
+    """Trade IDs already handled per pool – lets the bot catch up on trades missed during a restart."""
+    return {tuple(p.split(":", 1)): set(json.loads(ids)) for p, ids in _con.execute("SELECT * FROM seen")}
+
+
+def save_seen(pool: tuple[str, str], ids: set[str] | None):
+    if ids is None:
+        _con.execute("DELETE FROM seen WHERE pool = ?", (":".join(pool),))
+    else:
+        _con.execute("REPLACE INTO seen VALUES (?, ?)", (":".join(pool), json.dumps(sorted(ids))))
     _con.commit()

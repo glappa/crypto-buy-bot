@@ -14,6 +14,8 @@ Posts every buy of a coin live to your Telegram group – just enter the **contr
 - 🏷️ **Custom project name and banner per group** (image, GIF or video)
 - 🔗 Links: Chart (DexScreener), Buy, Telegram, X, Website
 - ⏸ Pause/resume, preview post, settings overview via `/settings`
+- 📡 **Catches every trade:** watches all relevant pools of the coin (not just the biggest), posts trades missed during a restart/update afterwards, retries failed posts (and posts without banner if the banner fails)
+- 📝 **Logs everything:** every trade with the decision per chat (posted / below min / failed), every command and every error – errors in commands are also shown in the chat
 - 👥 **Several bots at once** – every project can have a bot with its own name and profile picture
 - 🔒 Only group admins can change settings
 - No API keys needed (data from [GeckoTerminal](https://www.geckoterminal.com))
@@ -167,6 +169,8 @@ To change the name or picture later: `/setname` or `/setuserpic` in BotFather.
 | Problem | Solution |
 |---|---|
 | Bot doesn't react to commands | Is `python bot.py` still running? Make the bot an admin. Try sending the command as `/setup@YourBot …`. |
+| A buy didn't show up | Check the log (see below) for its TX: it says whether it was posted, skipped (e.g. below `/minbuy`) or failed – and why. |
+| "⚠️ GeckoTerminal not reachable" | Their free API is rate-limited or down for a moment – try again in a minute. |
 | "No pool found" | Check the CA. Specify the chain: `/setup <CA> base`. Brand-new coins may take a few minutes to show up on GeckoTerminal. |
 | "Only admins …" | Only group admins can configure the bot. |
 | Buys arrive with a delay | Normal: the bot checks every ~15 s. Adjust `POLL_SECONDS` in `.env` (not below 10). |
@@ -175,8 +179,15 @@ To change the name or picture later: `/setname` or `/setuserpic` in BotFather.
 
 **Notes**
 - **New Holder** = the buyer's wallet holds (about) only what they just bought. It's checked a few seconds after the buy via the chain's public RPC.
-- Only the pool with the most liquidity is tracked. Buys through other pools of the same coin won't show up.
-- The free GeckoTerminal API allows ~30 requests/minute. Each coin uses one request per round – with many coins the intervals get longer automatically.
+- Up to 5 pools of the coin are watched (all with at least 2 % of the biggest pool's liquidity). If a new pool is created later, run `/setup <CA>` again to pick it up.
+- After a restart, trades from the last 30 minutes that weren't posted yet are posted (change with `CATCH_UP_MINUTES`).
+- The free GeckoTerminal API allows ~30 requests/minute. Each watched pool uses one request per round – with many coins the intervals get longer automatically.
+
+**Logs** – everything the bot does is written to the console and to `buybot.log` (next to the database, kept across updates, rotated at 5 MB):
+```bash
+docker logs -f buybot                          # live
+docker exec buybot tail -n 200 /data/buybot.log  # history, also after updates
+```
 
 ## 🗂️ Files
 
