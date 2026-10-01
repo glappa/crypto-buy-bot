@@ -10,6 +10,7 @@ Posts every buy of a coin live to your Telegram group – just enter the **contr
 - 🎚️ **Minimum buy** – e.g. only post buys from $50 (`/minbuy 50`)
 - 🚀 Custom emoji + "$ per emoji" (bigger buys = longer emoji row)
 - 🐳 Whale alert from an amount you choose
+- 🔴 **Sells too – optional:** turn on with `/sells` (off by default)
 - 🏷️ **Custom project name and banner per group** (image, GIF or video)
 - 🔗 Links: Chart (DexScreener), Buy, Telegram, X, Website
 - ⏸ Pause/resume, preview post, settings overview via `/settings`
@@ -127,6 +128,7 @@ The bot automatically picks the pool with the most liquidity. Then use `/test` t
 | `/media` | *reply to an image/GIF/video* | Banner attached to every buy (`/media off` = remove) |
 | `/link <tg\|x\|web\|buy> <url>` | `/link x https://x.com/pepe` | Link below posts (`off` instead of URL = remove) |
 | `/whale <usd>` | `/whale 1000` | 🐳 alert from $1000 (`0` = off) |
+| `/sells` | `/sells` · `/sells on` · `/sells off` | Also post sells 🔴 (toggle; off by default, `/minbuy` applies too) |
 | `/pause` · `/resume` | | Pause / resume posts |
 | `/settings` | | Show all settings |
 | `/test` | | Post the latest real buy as a preview |

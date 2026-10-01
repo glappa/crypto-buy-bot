@@ -3,7 +3,7 @@ import json
 import sqlite3
 
 DEFAULTS = {"title": None, "emoji": "🟢", "step": 10, "min_buy": 0, "whale": 0,
-            "media": None, "links": {}, "paused": False}
+            "media": None, "links": {}, "paused": False, "sells": False}
 
 chats: dict[tuple[int, int], dict] = {}
 _con: sqlite3.Connection | None = None

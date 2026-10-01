@@ -93,6 +93,11 @@ def is_buy(cfg: dict, t: dict) -> bool:
     return to.lower() == cfg["ca"].lower() if to else t["kind"] == "buy"
 
 
+def is_sell(cfg: dict, t: dict) -> bool:
+    frm = t.get("from_token_address")
+    return frm.lower() == cfg["ca"].lower() if frm else t["kind"] == "sell"
+
+
 async def rpc(net: str, method: str, params: list):
     url = os.getenv(f"RPC_{net.upper()}") or NETS[net]["rpc"]
     body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
@@ -133,18 +138,21 @@ def amount(x) -> str:
 def render(cfg: dict, t: dict, new_holder: bool = False) -> str:
     n, e = NETS[cfg["net"]], html.escape
     a = lambda url, label: f'<a href="{e(url)}">{label}</a>'  # noqa: E731
-    usd, buyer = float(t["volume_in_usd"]), t["tx_from_address"]
-    price = float(t.get("price_to_in_usd") or 0)
+    usd, buyer, sell = float(t["volume_in_usd"]), t["tx_from_address"], is_sell(cfg, t)
+    # on a sell our token is the "from" side: tokens sold -> quote received
+    tokens, paid = (t["from_token_amount"], t["to_token_amount"]) if sell else (t["to_token_amount"], t["from_token_amount"])
+    price = float(t.get("price_from_in_usd" if sell else "price_to_in_usd") or 0)
+    word = "Sell" if sell else "Buy"
     links = {"📈 Chart": f"https://dexscreener.com/{n['dex']}/{cfg['pool']}", LINKS["buy"]: n["buy"].format(cfg["ca"])}
     links |= {LINKS[k]: url for k, url in cfg["links"].items()}  # a custom buy link replaces the default one
     lines = [
         f"{n['icon']} | <b>{e(cfg['title'] or cfg['name'])}</b>",
         "",
-        f"<b>{e(cfg['symbol'])} Buy!</b>",
-        cfg["emoji"] * (min(50, max(1, int(usd // cfg["step"]))) if cfg["step"] else 1),
+        f"<b>{e(cfg['symbol'])} {word}!</b>",
+        ("🔴" if sell else cfg["emoji"]) * (min(50, max(1, int(usd // cfg["step"]))) if cfg["step"] else 1),
         "",
-        f"💲 {amount(t['from_token_amount'])} {e(cfg['quote'])} (${usd:,.2f})",
-        f"🪙 {amount(t['to_token_amount'])} {e(cfg['symbol'])}",
+        f"💲 {amount(paid)} {e(cfg['quote'])} (${usd:,.2f})",
+        f"🪙 {amount(tokens)} {e(cfg['symbol'])}",
         f"👤 {a(n['wallet'].format(buyer), f'{buyer[:6]}...{buyer[-4:]}')} | {a(n['tx'].format(t['tx_hash']), 'Txn')}",
     ]
     if new_holder:
@@ -153,7 +161,7 @@ def render(cfg: dict, t: dict, new_holder: bool = False) -> str:
         lines.append(f"📊 Market Cap <b>${cfg['supply'] * price:,.0f}</b>")
     lines += ["", " | ".join(a(url, label) for label, url in links.items())]
     if cfg["whale"] and usd >= cfg["whale"]:
-        lines.insert(3, "🐳 <b>WHALE BUY!</b> 🐳")
+        lines.insert(3, f"🐳 <b>WHALE {word.upper()}!</b> 🐳")
     return "\n".join(lines)
 
 
@@ -197,11 +205,13 @@ async def run(bots: dict[int, Bot], interval: float):
             for t in new:
                 holder = None  # checked once per buy, only if some chat posts it
                 for key in keys:
-                    cfg = db.chats.get(key)
+                    if not (cfg := db.chats.get(key)):
+                        continue
                     try:
-                        if cfg and is_buy(cfg, t) and float(t["volume_in_usd"]) >= cfg["min_buy"]:
+                        buy = is_buy(cfg, t)
+                        if (buy or cfg["sells"] and is_sell(cfg, t)) and float(t["volume_in_usd"]) >= cfg["min_buy"]:
                             if holder is None:
-                                holder = await is_new_holder(cfg, t)
+                                holder = buy and await is_new_holder(cfg, t)
                             await send(bots[key[0]], key, cfg, render(cfg, t, holder))
                     except Exception as err:  # never let one odd trade stop the bot
                         log.warning("Skipping trade %s: %r", t.get("tx_hash"), err)

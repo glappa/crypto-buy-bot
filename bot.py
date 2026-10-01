@@ -24,6 +24,7 @@ HELP = """<b>🤖 Buy Bot – Commands</b> (settings are admin-only)
 /media – reply to an image/GIF/video: set banner (/media off = remove)
 /link &lt;tg|x|web|buy&gt; &lt;url|off&gt; – links below posts
 /whale &lt;usd&gt; – 🐳 alert from this amount (0 = off)
+/sells – also post sells 🔴 (toggle, /sells on|off)
 /pause · /resume – pause / resume posts
 /settings – current settings
 /test – post the latest real buy as a preview
@@ -154,6 +155,14 @@ async def link(update: Update, ctx: Ctx):
     await reply(update, f"✅ Link {tracker.LINKS[kind]} {'removed' if url == 'off' else 'set'}")
 
 
+@admin
+async def sells(update: Update, ctx: Ctx):
+    arg = (ctx.args or [""])[0].lower()
+    on = {"on": True, "off": False}.get(arg, not cfg(update, ctx)["sells"])
+    save(update, ctx, sells=on)
+    await reply(update, "🔴 Sells will be posted too" if on else "🟢 Only buys will be posted")
+
+
 def pause_cmd(paused: bool):
     @admin
     async def cmd(update: Update, ctx: Ctx):
@@ -172,7 +181,7 @@ async def settings(update: Update, ctx: Ctx):
         f"<b>⚙️ Settings</b>\n\nCoin: {html.escape(c['name'])} (${html.escape(c['symbol'])}) · {tracker.NETS[c['net']]['name']}\n"
         f"CA: <code>{c['ca']}</code>\nName: {html.escape(c['title'] or '–')}\n"
         f"Min. buy: ${c['min_buy']:g}\nEmoji: {c['emoji']} per ${c['step']:g}\n"
-        f"Whale: {whale}\nBanner: {'yes' if c['media'] else 'no'}\n"
+        f"Whale: {whale}\nSells: {'on' if c['sells'] else 'off'}\nBanner: {'yes' if c['media'] else 'no'}\n"
         f"Links: {links}\nStatus: {'⏸ paused' if c['paused'] else '▶️ active'}"))
 
 
@@ -216,6 +225,7 @@ COMMANDS = [
     ("media", media, "Set banner (image/GIF/video)"),
     ("link", link, "Set links below posts"),
     ("whale", number_cmd("whale", "whale", "✅ Whale alert from ${:g} (0 = off)"), "Whale threshold in $"),
+    ("sells", sells, "Toggle sell posts"),
     ("pause", pause_cmd(True), "Pause posts"),
     ("resume", pause_cmd(False), "Resume posts"),
     ("settings", settings, "Show settings"),
